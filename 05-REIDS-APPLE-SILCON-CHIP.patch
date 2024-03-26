@@ -1,0 +1,120 @@
+diff --git a/src/ae_kqueue.c b/src/ae_kqueue.c
+index 6796f4ceb..2e40e55e7 100644
+--- a/src/ae_kqueue.c
++++ b/src/ae_kqueue.c
+@@ -28,7 +28,10 @@
+  * POSSIBILITY OF SUCH DAMAGE.
+  */
+ 
++#include "ae.h"
++#include "zmalloc.h"
+ 
++#include <unistd.h>
+ #include <sys/types.h>
+ #include <sys/event.h>
+ #include <sys/time.h>
+diff --git a/src/config.h b/src/config.h
+index efa9d11f2..a1db883a0 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -41,8 +41,8 @@
+ 
+ /* Define redis_fstat to fstat or fstat64() */
+ #if defined(__APPLE__) && !defined(MAC_OS_X_VERSION_10_6)
+-#define redis_fstat fstat64
+-#define redis_stat stat64
++#define redis_fstat fstat
++#define redis_stat stat
+ #else
+ #define redis_fstat fstat
+ #define redis_stat stat
+diff --git a/src/debug.c b/src/debug.c
+index 351d749a8..8061e721f 100644
+--- a/src/debug.c
++++ b/src/debug.c
+@@ -740,14 +740,18 @@ static void *getMcontextEip(ucontext_t *uc) {
+     #elif defined(__i386__)
+     return (void*) uc->uc_mcontext->__ss.__eip;
+     #else
+-    return (void*) uc->uc_mcontext->__ss.__srr0;
++    // return (void*) uc->uc_mcontext->__ss.__srr0;
++    return (void*) arm_thread_state64_get_pc(uc->uc_mcontext->__ss);
+     #endif
+ #elif defined(__APPLE__) && defined(MAC_OS_X_VERSION_10_6)
+     /* OSX >= 10.6 */
+     #if defined(_STRUCT_X86_THREAD_STATE64) && !defined(__i386__)
+     return (void*) uc->uc_mcontext->__ss.__rip;
+-    #else
++    #elif defined(__i386__)
+     return (void*) uc->uc_mcontext->__ss.__eip;
++    #else
++    /* OSX ARM64 APPLE SILCON CHIP */
++    return (void*) arm_thread_state64_get_pc(uc->uc_mcontext->__ss);
+     #endif
+ #elif defined(__linux__)
+     /* Linux */
+@@ -833,7 +837,7 @@ void logRegisters(ucontext_t *uc) {
+         (unsigned long) uc->uc_mcontext->__ss.__gs
+     );
+     logStackContent((void**)uc->uc_mcontext->__ss.__rsp);
+-    #else
++    #elif defined(__i386__)
+     /* OSX x86 */
+     serverLog(LL_WARNING,
+     "\n"
+@@ -859,6 +863,55 @@ void logRegisters(ucontext_t *uc) {
+         (unsigned long) uc->uc_mcontext->__ss.__gs
+     );
+     logStackContent((void**)uc->uc_mcontext->__ss.__esp);
++    #else
++    /* OSX ARM64 APPLE SILCON CHIP */
++    serverLog(LL_WARNING,
++    "\n"
++    "x0:%016lx x1:%016lx x2:%016lx x3:%016lx\n"
++    "x4:%016lx x5:%016lx x6:%016lx x7:%016lx\n"
++    "x8:%016lx x9:%016lx x10:%016lx x11:%016lx\n"
++    "x12:%016lx x13:%016lx x14:%016lx x15:%016lx\n"
++    "x16:%016lx x17:%016lx x18:%016lx x19:%016lx\n"
++    "x20:%016lx x21:%016lx x22:%016lx x23:%016lx\n"
++    "x24:%016lx x25:%016lx x26:%016lx x27:%016lx\n"
++    "x28:%016lx fp:%016lx lr:%016lx\n"
++    "sp:%016lx pc:%016lx cpsr:%08lx\n",
++        (unsigned long) uc->uc_mcontext->__ss.__x[0],
++        (unsigned long) uc->uc_mcontext->__ss.__x[1],
++        (unsigned long) uc->uc_mcontext->__ss.__x[2],
++        (unsigned long) uc->uc_mcontext->__ss.__x[3],
++        (unsigned long) uc->uc_mcontext->__ss.__x[4],
++        (unsigned long) uc->uc_mcontext->__ss.__x[5],
++        (unsigned long) uc->uc_mcontext->__ss.__x[6],
++        (unsigned long) uc->uc_mcontext->__ss.__x[7],
++        (unsigned long) uc->uc_mcontext->__ss.__x[8],
++        (unsigned long) uc->uc_mcontext->__ss.__x[9],
++        (unsigned long) uc->uc_mcontext->__ss.__x[10],
++        (unsigned long) uc->uc_mcontext->__ss.__x[11],
++        (unsigned long) uc->uc_mcontext->__ss.__x[12],
++        (unsigned long) uc->uc_mcontext->__ss.__x[13],
++        (unsigned long) uc->uc_mcontext->__ss.__x[14],
++        (unsigned long) uc->uc_mcontext->__ss.__x[15],
++        (unsigned long) uc->uc_mcontext->__ss.__x[16],
++        (unsigned long) uc->uc_mcontext->__ss.__x[17],
++        (unsigned long) uc->uc_mcontext->__ss.__x[18],
++        (unsigned long) uc->uc_mcontext->__ss.__x[19],
++        (unsigned long) uc->uc_mcontext->__ss.__x[20],
++        (unsigned long) uc->uc_mcontext->__ss.__x[21],
++        (unsigned long) uc->uc_mcontext->__ss.__x[22],
++        (unsigned long) uc->uc_mcontext->__ss.__x[23],
++        (unsigned long) uc->uc_mcontext->__ss.__x[24],
++        (unsigned long) uc->uc_mcontext->__ss.__x[25],
++        (unsigned long) uc->uc_mcontext->__ss.__x[26],
++        (unsigned long) uc->uc_mcontext->__ss.__x[27],
++        (unsigned long) uc->uc_mcontext->__ss.__x[28],
++        (unsigned long) arm_thread_state64_get_fp(uc->uc_mcontext->__ss),
++        (unsigned long) arm_thread_state64_get_lr(uc->uc_mcontext->__ss),
++        (unsigned long) arm_thread_state64_get_sp(uc->uc_mcontext->__ss),
++        (unsigned long) arm_thread_state64_get_pc(uc->uc_mcontext->__ss),
++        (unsigned long) uc->uc_mcontext->__ss.__cpsr
++    );
++    logStackContent((void**) arm_thread_state64_get_sp(uc->uc_mcontext->__ss));
+     #endif
+ /* Linux */
+ #elif defined(__linux__)
